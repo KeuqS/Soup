@@ -1,6 +1,7 @@
 """Keep visible CLI commands and parameters discoverable in ``--help``."""
 
 from collections.abc import Iterator
+import inspect
 
 import click
 import typer
@@ -20,6 +21,25 @@ def _visible_commands(
             yield from _visible_commands(child, path + (name,))
 
 
+def _parameter_help(command: click.Command, parameter: click.Parameter) -> str | None:
+    """Return help from Click or the Typer declaration behind an argument."""
+    if parameter.help:
+        return parameter.help
+    if not isinstance(parameter, click.Argument) or command.callback is None:
+        return parameter.help
+
+    callback_parameter = inspect.signature(command.callback).parameters.get(
+        parameter.name
+    )
+    if callback_parameter is None:
+        return parameter.help
+
+    argument_info = callback_parameter.default
+    if isinstance(argument_info, typer.models.ArgumentInfo):
+        return argument_info.help
+    return parameter.help
+
+
 def test_visible_commands_and_parameters_have_help() -> None:
     """Every visible CLI entry should explain itself in generated help."""
     root = typer.main.get_command(app)
@@ -32,7 +52,7 @@ def test_visible_commands_and_parameters_have_help() -> None:
         for parameter in command.params:
             if getattr(parameter, "hidden", False):
                 continue
-            if not parameter.help:
+            if not _parameter_help(command, parameter):
                 missing.append(f"parameter {label!r}: {parameter.name!r}")
 
     assert not missing, "Missing CLI help:\n" + "\n".join(missing)
