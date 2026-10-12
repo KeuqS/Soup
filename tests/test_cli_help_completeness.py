@@ -1,7 +1,7 @@
 """Keep visible CLI commands and parameters discoverable in ``--help``."""
 
-from collections.abc import Iterator
 import inspect
+from collections.abc import Iterator
 
 import click
 import typer
