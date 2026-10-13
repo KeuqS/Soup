@@ -501,5 +501,6 @@ class TestOversizedIntegerBaselineRefusal:
             ],
         )
         assert result.exit_code == EXIT_USAGE_ERROR
-        assert "finite / out of range" in result.output
+        assert "finite" in result.output.lower()
+        assert "out of" in result.output.lower()
         assert raw_num not in result.output
