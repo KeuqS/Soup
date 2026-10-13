@@ -146,6 +146,23 @@ def current_baseline_stamp() -> dict[str, object]:
     }
 
 
+
+
+def _finite_score(value: int | float, *, name: str, context: str) -> float:
+    """Convert a baseline score and reject non-finite or unrepresentable values."""
+    try:
+        fval = float(value)
+    except OverflowError as exc:
+        raise ValueError(
+            f"{context}: score for {name!r} must be finite / out of range"
+        ) from exc
+    if not math.isfinite(fval):
+        raise ValueError(
+            f"{context}: score for {name!r} must be finite / out of range"
+        )
+    return fval
+
+
 def stamp_baseline_scores(scores: Mapping[str, float]) -> dict[str, object]:
     """Build the stamped baseline envelope (shared writer helper, #404).
 
@@ -165,11 +182,7 @@ def stamp_baseline_scores(scores: Mapping[str, float]) -> dict[str, object]:
                 f"baseline score for {name!r} must be a number, "
                 f"got {type(value).__name__}"
             )
-        fval = float(value)
-        if not math.isfinite(fval):
-            raise ValueError(
-                f"baseline score for {name!r} must be finite, got {value}"
-            )
+        fval = _finite_score(value, name=name, context="baseline")
         clean[name] = fval
     return {
         _BASELINE_SCORES_KEY: clean,
@@ -210,11 +223,7 @@ def _coerce_score_map(raw: Mapping[object, object], *, context: str) -> dict[str
                 f"{context}: score for {name!r} must be a number, "
                 f"got {type(value).__name__}"
             )
-        fval = float(value)
-        if not math.isfinite(fval):
-            raise ValueError(
-                f"{context}: score for {name!r} must be finite, got {value}"
-            )
+        fval = _finite_score(value, name=name, context=context)
         out[name] = fval
     return out
 
@@ -597,16 +606,19 @@ def run_gate(
         baseline = {}
     elif not isinstance(baseline, Mapping):
         raise TypeError(f"baseline must be a mapping, got {type(baseline).__name__}")
+    clean_baseline: dict[object, float] = {}
     for base_name, base_val in baseline.items():
         if isinstance(base_val, bool) or not isinstance(base_val, (int, float)):
             raise TypeError(
                 f"baseline score for {base_name!r} must be a number, "
                 f"got {type(base_val).__name__}"
             )
-        if not math.isfinite(base_val):
-            raise ValueError(
-                f"baseline score for {base_name!r} must be finite, got {base_val}"
-            )
+        clean_baseline[base_name] = _finite_score(
+            base_val,
+            name=str(base_name),
+            context="baseline",
+        )
+    baseline = clean_baseline
     task_results: list[GateTaskResult] = []
     any_regressed = False
     any_failed_threshold = False
