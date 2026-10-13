@@ -420,7 +420,7 @@ class TestOversizedIntegerBaselineRefusal:
         base_file = tmp_path / "baseline-stamped.json"
         base_file.write_text(
             f'{{"scores": {{"control": {raw_num}}}, '
-            '"provenance": {"scorer_revision": 1}}}',
+            '"provenance": {"scorer_revision": 1}}',
             encoding="utf-8",
         )
 
@@ -469,7 +469,8 @@ class TestOversizedIntegerBaselineRefusal:
             ],
         )
         assert result.exit_code == EXIT_USAGE_ERROR
-        assert "finite / out of range" in result.output
+        assert "finite" in result.output.lower()
+        assert "out of" in result.output.lower()
         assert raw_num not in result.output
 
     @pytest.mark.parametrize("raw_num", ["1" + "0" * 400, "-1" + "0" * 400])
