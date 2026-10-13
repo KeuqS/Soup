@@ -380,3 +380,125 @@ class TestHealthyControlsPreserved:
     def test_empty_baseline_resolved_silently(self):
         assert resolve_baseline(None) == {}
         assert resolve_baseline("") == {}
+
+
+class TestOversizedIntegerBaselineRefusal:
+    """400-digit integer baselines must follow the non-finite input path."""
+
+    @pytest.mark.parametrize("bad_val", [10**400, -(10**400)])
+    def test_stamp_rejects_oversized_integer_without_echoing_value(self, bad_val):
+        with pytest.raises(ValueError, match="finite / out of range") as exc_info:
+            stamp_baseline_scores({"control": bad_val})
+        message = str(exc_info.value)
+        assert "control" in message
+        assert str(abs(bad_val)) not in message
+
+    @pytest.mark.parametrize("bad_val", [10**400, -(10**400)])
+    def test_write_rejects_oversized_integer_without_creating_file(
+        self, tmp_path, bad_val
+    ):
+        target = tmp_path / "baseline.json"
+        with pytest.raises(ValueError, match="finite / out of range"):
+            write_baseline_file(str(target), {"control": bad_val})
+        assert not target.exists()
+
+    @pytest.mark.parametrize("raw_num", ["1" + "0" * 400, "-1" + "0" * 400])
+    def test_resolve_legacy_file_rejects_oversized_integer(self, tmp_path, monkeypatch, raw_num):
+        monkeypatch.chdir(tmp_path)
+        base_file = tmp_path / "baseline.json"
+        base_file.write_text(f'{{"control": {raw_num}}}', encoding="utf-8")
+
+        with pytest.raises(ValueError, match="finite / out of range") as exc_info:
+            resolve_baseline(base_file.name)
+        assert raw_num not in str(exc_info.value)
+
+    @pytest.mark.parametrize("raw_num", ["1" + "0" * 400, "-1" + "0" * 400])
+    def test_resolve_stamped_file_rejects_oversized_integer(
+        self, tmp_path, monkeypatch, raw_num
+    ):
+        monkeypatch.chdir(tmp_path)
+        base_file = tmp_path / "baseline-stamped.json"
+        base_file.write_text(
+            f'{{"scores": {{"control": {raw_num}}}, '
+            '"provenance": {"scorer_revision": 1}}}',
+            encoding="utf-8",
+        )
+
+        with pytest.raises(ValueError, match="finite / out of range") as exc_info:
+            resolve_baseline(base_file.name)
+        assert raw_num not in str(exc_info.value)
+
+    @pytest.mark.parametrize("bad_val", [10**400, -(10**400)])
+    def test_run_gate_rejects_oversized_integer(self, tmp_path, bad_val):
+        suite = EvalSuite(
+            suite="probe",
+            tasks=[
+                GateTask(
+                    type="custom",
+                    name="control",
+                    threshold=0.0,
+                    tasks=str(tmp_path / "dummy.jsonl"),
+                    scorer="exact",
+                )
+            ],
+        )
+
+        with pytest.raises(ValueError, match="finite / out of range") as exc_info:
+            run_gate(suite, generate_fn=lambda p: "", baseline={"control": bad_val})
+        assert "control" in str(exc_info.value)
+        assert str(abs(bad_val)) not in str(exc_info.value)
+
+    @pytest.mark.parametrize("raw_num", ["1" + "0" * 400, "-1" + "0" * 400])
+    def test_eval_gate_cli_returns_usage_error_for_oversized_integer(
+        self, tmp_path, monkeypatch, raw_num
+    ):
+        monkeypatch.chdir(tmp_path)
+        suite_file, _ = _make_suite_and_tasks(tmp_path)
+        base_file = tmp_path / "baseline.json"
+        base_file.write_text(f'{{"control": {raw_num}}}', encoding="utf-8")
+
+        result = runner.invoke(
+            app,
+            [
+                "eval",
+                "gate",
+                "--suite",
+                suite_file.name,
+                "--baseline",
+                base_file.name,
+            ],
+        )
+        assert result.exit_code == EXIT_USAGE_ERROR
+        assert "finite / out of range" in result.output
+        assert raw_num not in result.output
+
+    @pytest.mark.parametrize("raw_num", ["1" + "0" * 400, "-1" + "0" * 400])
+    def test_ship_cli_returns_usage_error_for_oversized_integer(
+        self, tmp_path, monkeypatch, raw_num
+    ):
+        monkeypatch.chdir(tmp_path)
+        base_file = tmp_path / "baseline.json"
+        base_file.write_text(f'{{"control": {raw_num}}}', encoding="utf-8")
+        tasks_file = tmp_path / "tasks.jsonl"
+        tasks_file.write_text(
+            '{"prompt": "x", "expected": "y", "scoring": "exact"}\n',
+            encoding="utf-8",
+        )
+
+        result = runner.invoke(
+            app,
+            [
+                "ship",
+                "--base",
+                "m",
+                "--tuned",
+                "m",
+                "--task-eval",
+                tasks_file.name,
+                "--baseline",
+                base_file.name,
+            ],
+        )
+        assert result.exit_code == EXIT_USAGE_ERROR
+        assert "finite / out of range" in result.output
+        assert raw_num not in result.output
